@@ -3,11 +3,7 @@ package internal
 
 import java.util.UUID
 
-case class Package(
-  cmd: Byte,
-  correlation: UUID,
-  data: Array[Byte],
-  credentials: Option[Credentials]) {
+case class Package(cmd: Byte, correlation: UUID, data: Array[Byte], credentials: Option[Credentials]) {
 
   lazy val isAuthenticated = credentials match {
     case Some(_) => true
@@ -32,4 +28,10 @@ case class Package(
 object Package {
   def heartbeatResponse(uuid: UUID): Package =
     Package(0x02, uuid, new Array[Byte](0), None)
+
+  def apply(cmd: Byte, data: Array[Byte], credentials: Option[Credentials]): Package = {
+    val uuid = UUID.randomUUID
+
+    Package(cmd, uuid, data, credentials)
+  }
 }

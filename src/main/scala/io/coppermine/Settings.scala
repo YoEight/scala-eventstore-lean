@@ -2,5 +2,6 @@ package io.coppermine
 
 case class Settings(
   hostname: String,
-  port: Int
+  port: Int,
+  credentials: Option[Credentials] = None
 )

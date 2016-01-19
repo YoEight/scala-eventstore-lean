@@ -81,6 +81,9 @@ case class Connection(settings: Settings) {
     buf.flip()
     _socket.write(buf)
   }
+
+  def close(): Unit =
+    _socket.close
 }
 
 object Connection {
