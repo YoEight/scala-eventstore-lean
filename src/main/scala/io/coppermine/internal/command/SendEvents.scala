@@ -11,7 +11,7 @@ import protocol.Messages.NewEvent
 import protocol.Messages.OperationResult._
 import protocol.Messages.WriteEvents
 import protocol.Messages.WriteEventsCompleted
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.concurrent.SyncVar
 
 case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean, version: ExpectedVersion, res: SyncVar[WriteResult]) extends Command {
@@ -47,16 +47,14 @@ case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean,
         builder.build
     }
 
-    val output      = new ByteArrayOutputStream()
-    val writeEvents = WriteEvents.newBuilder
+    val dto = WriteEvents.newBuilder
       .setEventStreamId(stream)
       .setExpectedVersion(version.flag)
-      .addAllEvents(xs)
+      .addAllEvents(xs.toIterable.asJava)
       .setRequireMaster(requireMaster)
       .build
-      .writeTo(output)
-
-    val pkg = Package(0x82.toByte, output.toByteArray, settings.credentials)
+    val bytes = dto.toByteArray
+    val pkg   = Package(0x82, bytes, settings.credentials)
 
     Send(pkg, {
       case Package(cmd, _, bytes, _) if cmd == 0x83 =>
@@ -64,8 +62,8 @@ case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean,
 
         msg.getResult match {
           case Success =>
-            val commit  = Option(msg.getCommitPosition).getOrElse(-1: Long)
-            val prepare = Option(msg.getPreparePosition).getOrElse(-1: Long)
+            val commit  = Option(msg.getCommitPosition).getOrElse[Long](-1)
+            val prepare = Option(msg.getPreparePosition).getOrElse[Long](-1)
             val pos     = Position(commit, prepare)
             val last    = msg.getLastEventNumber
 

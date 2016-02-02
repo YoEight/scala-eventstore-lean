@@ -8,61 +8,45 @@ case class Execution() {
   val queue    = new LinkedBlockingDeque[Msg]()
   val settings = Settings("localhost", 1113)
   val conn     = Connection(settings)
-  var reader   = Reader(queue, conn)
-  var manager  = Manager(settings, queue, conn)
-
-  manager.start()
-  reader.start()
-
-  def push(cmd: Command): Unit =
-    queue.add(Operation(cmd))
-
-  def shutdown(): Unit =
-    queue.add(Shutdown)
 }
 
-case class Manager(settings: Settings, queue: LinkedBlockingDeque[Msg], conn: Connection) extends Thread {
-  case class Cont(f: PartialFunction[Package, Result])
+case class Cont(f: PartialFunction[Package, Result])
 
-  val ops = scala.collection.mutable.Map[UUID, Cont]()
+trait Action[A]
+case class SendPackage[A](pkg: Package, nxt: A) extends Action[A]
+case class RecvPackage[A](pkg: Package, nxt: A) extends Action[A]
+case class PushOperation[A](cmd: Command, nxt: A) extends Action[A]
+case class Await[A](nxt: A) extends Action[A]
 
-  override def run = loop
-
-  @annotation.tailrec
-  final def loop: Unit = {
-    queue.poll match {
-      case Shutdown =>
-        conn.close()
-      case Pkg(pkg) => {
-        ops.get(pkg.correlation).foreach {
-          case Cont(partial) =>
-            partial.lift(pkg).foreach {
-              case Send(newPkg, k) =>
-                ops - pkg.correlation
-                ops + (newPkg.correlation -> Cont(k))
-                conn.send(newPkg)
-              case Done =>
-                ops - pkg.correlation
-              case Error(e) =>
-                println(s"Exception raised $e")
-              case Retry(cmd) =>
-                queue.add(Operation(cmd))
-            }
-        }
-        loop
-      }
-      case Operation(cmd) => {
-        cmd(settings) match {
-          case Send(pkg, k) =>
-            ops + (pkg.correlation -> Cont(k))
-            conn.send(pkg)
-          case Retry(newCmd) => queue.add(Operation(newCmd))
-          case _ => /* Nothing to do here */
-        }
-
-        loop
-      }
+case class Manager(settings: Settings, ops: Map[UUID, Cont] = Map()) {
+  def apply(pkg: Package): Option[Action[Manager]] =
+    for {
+      Cont(partial) <- ops.get(pkg.correlation)
+      res           <- partial.lift(pkg)
+    } yield res match {
+      case Send(newPkg, k) =>
+        val finalOps = ops - pkg.correlation + (newPkg.correlation -> Cont(k))
+        SendPackage(newPkg, copy(ops = finalOps))
+      case Retry(cmd) =>
+        val finalOps = ops - pkg.correlation
+        PushOperation(cmd, copy(ops = finalOps))
+      case Done =>
+        val finalOps = ops - pkg.correlation
+        Await(copy(ops = finalOps))
+      case Error(e) =>
+        val finalOps = ops - pkg.correlation
+        println(s"Exception raised $e")
+        Await(copy(ops = finalOps))
     }
+
+  def apply(cmd: Command): Action[Manager] = cmd(settings) match {
+    case Send(pkg, k) =>
+      val finalOps = ops + (pkg.correlation -> Cont(k))
+      SendPackage(pkg, copy(ops = finalOps))
+    case Retry(newCmd) =>
+      PushOperation(newCmd, this)
+    case _ =>
+      Await(this)
   }
 }
 

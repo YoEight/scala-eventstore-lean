@@ -2,14 +2,12 @@ import sbt._
 import Keys._
 
 import sbtprotobuf.{ ProtobufPlugin => PB }
-// import scalabuff.ScalaBuffPlugin._
 
 object ScalaEventStoreProject extends Build {
 
   lazy val root = Project("scala-eventstore-lean", file("."))
     .settings(PB.protobufSettings : _*)
     .settings(coreSettings : _*)
-//     .configs(ScalaBuff)
 
   lazy val commonSettings: Seq[Setting[_]] = Seq(
     organization := "io.coppermine",
@@ -17,7 +15,7 @@ object ScalaEventStoreProject extends Build {
     scalaVersion := "2.11.7",
     crossScalaVersions := Seq("2.10.4", "2.11.7"),
     scalacOptions := Seq("-deprecation", "-feature"),
-    sourceDirectories in PB.protobufConfig <+= (PB.externalIncludePath in PB.protobufConfig)
+    scalacOptions in Test ++= Seq("-Yrangepos")
   )
 
   lazy val coreSettings = commonSettings ++ Seq(
@@ -25,8 +23,8 @@ object ScalaEventStoreProject extends Build {
     libraryDependencies :=
       Seq(
         "org.json4s" %% "json4s-native" % "3.3.0",
-        "com.google.protobuf" % "protobuf-java" % "2.6.1"
-//        "net.sandrogrzicic" %% "scalabuff-runtime" % "1.4.0"
+        "com.google.protobuf" % "protobuf-java" % "2.5.0",
+        "org.specs2" %% "specs2-core" % "3.7" % "test"
       )
   )
 
