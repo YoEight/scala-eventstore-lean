@@ -8,6 +8,8 @@ case class MgrRetry(cmd: Command) extends ManagerOut
 case object MgrNoop extends ManagerOut
 
 case class ManagerM[A](k: Manager => (Manager, A)) {
+  def apply(mgr: Manager): (Manager, A) = k(mgr)
+
   def map[B](f: (A) => B): ManagerM[B] = ManagerM { m =>
     k(m) match {
       case (newM, a) => (newM, f(a))
@@ -20,7 +22,9 @@ case class ManagerM[A](k: Manager => (Manager, A)) {
     }
   }
 
-  def execute(settings: Settings): A = k(Manager(settings))._2
+  def execute(settings: Settings): Manager = k(Manager(settings))._1
+
+  def eval(settings: Settings): A = k(Manager(settings))._2
 }
 
 object ManagerM {
