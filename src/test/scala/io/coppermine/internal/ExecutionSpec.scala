@@ -8,6 +8,7 @@ object ExecutionSpec extends Specification { def is = s2"""
   EventStore TCP Client specifications
     writing an event should work      $writeEvents
     reading an event should work      $readEvent
+    deleting a stream should work     $deleteStream
                                       """
 
   val settings = Settings("localhost", 1113)
@@ -75,6 +76,41 @@ object ExecutionSpec extends Specification { def is = s2"""
       }
       case wrong => sys.error(s"Wrong output from read $wrong")
     }
+  }
+
+  def deleteStream = {
+    val conn     = Connection(settings)
+    val evt      = Event("event-type", BinaryData("event-data".getBytes, None))
+    val writeRes = new SyncVar[WriteResult]()
+    val cmd      = command.SendEvents("test-delete", List(evt), true, AnyVersion, writeRes)
+
+    val writeAction = for {
+      pkg <- ManagerM.addCommand(cmd)
+      _    = conn.send(pkg)
+      resp = waitResponse(conn)
+      out <- ManagerM.handlePackage(resp)
+    } yield out match {
+      case MgrNoop => writeRes.get
+      case wrong   => sys.error(s"Wrong response during write $wrong")
+    }
+
+    val mgr   = writeAction.execute(settings)
+    val input = command.DeleteStream.Input("test-delete", AnyVersion, true, false)
+    val cmd2  = command.DeleteStream(input)
+
+    val deleteAction = for {
+      pkg <- ManagerM.addCommand(cmd2)
+      _    = conn.send(pkg)
+      resp = waitResponse(conn)
+      out <- ManagerM.handlePackage(resp)
+    } yield out match {
+      case MgrNoop => input.result.get
+      case wrong   => sys.error(s"Wrong response during delete $wrong")
+    }
+
+    val (_, delete) = deleteAction(mgr)
+
+    delete must not beNull
   }
 
   @annotation.tailrec
