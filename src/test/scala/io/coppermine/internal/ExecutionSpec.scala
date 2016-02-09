@@ -15,56 +15,28 @@ object ExecutionSpec extends Specification { def is = s2"""
 
   def writeEvents = {
     val conn   = Connection(settings)
-    val evt    = Event("event-type", BinaryData("event-data".getBytes, None))
-    val result = new SyncVar[WriteResult]()
-    val cmd    = command.SendEvents("test-stream", List(evt), true, AnyVersion, result)
-
-    val action = for {
-      pkg <- ManagerM.addCommand(cmd)
-      _    = conn.send(pkg)
-      resp = waitResponse(conn)
-      out <- ManagerM.handlePackage(resp)
-    } yield out match {
-      case MgrNoop => result.get
-      case wrong   => sys.error(s"Wrong response $wrong")
-    }
-
-    val write = action.eval(settings)
+    val action = sendEvent(conn, "test-stream", "event-type", "event-data")
+    val write  = action.eval(settings)
 
     write must not beNull
   }
 
   def readEvent = {
-    val conn     = Connection(settings)
-    val evt      = Event("event-type", BinaryData("event-data".getBytes, None))
-    val writeRes = new SyncVar[WriteResult]()
-    val cmd      = command.SendEvents("test-read", List(evt), true, AnyVersion, writeRes)
+    val conn = Connection(settings)
 
-    val writeAction = for {
+    val action = for {
+      _ <- sendEvent(conn, "test-read", "event-type", "event-data")
+      cmd = command.ReadEvent("test-read", 1, true)
       pkg <- ManagerM.addCommand(cmd)
       _    = conn.send(pkg)
       resp = waitResponse(conn)
       out <- ManagerM.handlePackage(resp)
     } yield out match {
-      case MgrNoop => writeRes.get
-      case wrong   => sys.error(s"Wrong response during write $wrong")
-    }
-
-    val readRes = new SyncVar[ReadResult[ReadEventResult]]()
-    val mgr     = writeAction.execute(settings)
-    val cmd2    = command.ReadEvent("test-read", 1, true, readRes)
-
-    val readAction = for {
-      pkg <- ManagerM.addCommand(cmd2)
-      _    = conn.send(pkg)
-      resp = waitResponse(conn)
-      out <- ManagerM.handlePackage(resp)
-    } yield out match {
-      case MgrNoop => readRes.get
+      case MgrNoop => cmd.result.get
       case wrong   => sys.error(s"Wrong response during read $wrong")
     }
 
-    val (_, read) = readAction(mgr)
+    val read = action.eval(settings)
 
     read match {
       case ReadSuccess(r) => r match {
@@ -79,36 +51,21 @@ object ExecutionSpec extends Specification { def is = s2"""
   }
 
   def deleteStream = {
-    val conn     = Connection(settings)
-    val evt      = Event("event-type", BinaryData("event-data".getBytes, None))
-    val writeRes = new SyncVar[WriteResult]()
-    val cmd      = command.SendEvents("test-delete", List(evt), true, AnyVersion, writeRes)
+    val conn = Connection(settings)
 
-    val writeAction = for {
+    val action = for {
+      _   <- sendEvent(conn, "test-delete", "event-type", "event-data")
+      cmd = command.DeleteStream("test-delete", AnyVersion, true, false)
       pkg <- ManagerM.addCommand(cmd)
       _    = conn.send(pkg)
       resp = waitResponse(conn)
       out <- ManagerM.handlePackage(resp)
     } yield out match {
-      case MgrNoop => writeRes.get
-      case wrong   => sys.error(s"Wrong response during write $wrong")
-    }
-
-    val mgr   = writeAction.execute(settings)
-    val input = command.DeleteStream.Input("test-delete", AnyVersion, true, false)
-    val cmd2  = command.DeleteStream(input)
-
-    val deleteAction = for {
-      pkg <- ManagerM.addCommand(cmd2)
-      _    = conn.send(pkg)
-      resp = waitResponse(conn)
-      out <- ManagerM.handlePackage(resp)
-    } yield out match {
-      case MgrNoop => input.result.get
+      case MgrNoop => cmd.result.get
       case wrong   => sys.error(s"Wrong response during delete $wrong")
     }
 
-    val (_, delete) = deleteAction(mgr)
+    val delete = action.eval(settings)
 
     delete must not beNull
   }
@@ -122,6 +79,21 @@ object ExecutionSpec extends Specification { def is = s2"""
         conn.send(Package.heartbeatResponse(pkg.correlation))
         waitResponse(conn)
       case other => pkg
+    }
+  }
+
+  def sendEvent(conn: Connection, stream: String, tpe: String, value: String): ManagerM[WriteResult] = {
+    val evt = Event(tpe, BinaryData(value.getBytes, None))
+    val cmd = command.SendEvents(stream, List(evt), true, AnyVersion)
+
+    for {
+      pkg <- ManagerM.addCommand(cmd)
+      _    = conn.send(pkg)
+      resp = waitResponse(conn)
+      out <- ManagerM.handlePackage(resp)
+    } yield out match {
+      case MgrNoop => cmd.result.get
+      case wrong   => sys.error(s"Wrong response when writting $wrong")
     }
   }
 }

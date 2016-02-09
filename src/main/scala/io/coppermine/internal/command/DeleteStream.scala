@@ -6,15 +6,21 @@ import protocol.Messages.{ DeleteStream => DS }
 import protocol.Messages.DeleteStreamCompleted
 import protocol.Messages.OperationResult._
 
-import DeleteStream._
+import scala.concurrent.SyncVar
 
-case class DeleteStream(input: Input) extends Command {
+trait DeleteStream extends Command {
+  def stream: String
+  def version: ExpectedVersion
+  def requireMaster: Boolean
+  def hardDelete: Boolean
+  def result: SyncVar[DeleteResult]
+
   def apply(settings: Settings) = {
     val msg = DS.newBuilder
-      .setEventStreamId(input.stream)
-      .setExpectedVersion(input.version.flag)
-      .setRequireMaster(input.requireMaster)
-      .setHardDelete(input.hardDelete)
+      .setEventStreamId(stream)
+      .setExpectedVersion(version.flag)
+      .setRequireMaster(requireMaster)
+      .setHardDelete(hardDelete)
       .build
       .toByteArray
 
@@ -31,16 +37,16 @@ case class DeleteStream(input: Input) extends Command {
             val pos     = Position(commit, prepare)
             val res     = DeleteResult(pos)
 
-            input.result.put(res)
+            result.put(res)
             Done
           case WrongExpectedVersion =>
-            Error(WrongExpectedVersionException(input.stream, input.version))
+            Error(WrongExpectedVersionException(stream, version))
           case StreamDeleted =>
-            Error(StreamDeletedException(input.stream))
+            Error(StreamDeletedException(stream))
           case InvalidTransaction =>
             Error(InvalidTransactionException)
           case AccessDenied =>
-            Error(AccessDeniedException(input.stream))
+            Error(AccessDeniedException(stream))
           case _ => Retry(this)
         }
     })
@@ -48,17 +54,7 @@ case class DeleteStream(input: Input) extends Command {
 }
 
 object DeleteStream {
-  import scala.concurrent.SyncVar
-
-  sealed trait Input {
-    def stream: String
-    def version: ExpectedVersion
-    def requireMaster: Boolean
-    def hardDelete: Boolean
-    def result: SyncVar[DeleteResult]
-  }
-
-  def Input(_stream: String, _version: ExpectedVersion, _requireMaster: Boolean, _hardDelete: Boolean): Input = new Input {
+  def apply(_stream: String, _version: ExpectedVersion, _requireMaster: Boolean, _hardDelete: Boolean) = new DeleteStream {
     val stream        = _stream
     val version       = _version
     val requireMaster = _requireMaster

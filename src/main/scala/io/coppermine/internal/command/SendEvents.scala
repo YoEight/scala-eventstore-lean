@@ -14,9 +14,15 @@ import protocol.Messages.WriteEventsCompleted
 import scala.collection.JavaConverters._
 import scala.concurrent.SyncVar
 
-case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean, version: ExpectedVersion, res: SyncVar[WriteResult]) extends Command {
+trait SendEvents extends Command {
+  def stream: String
+  def version: ExpectedVersion
+  def events: List[Event]
+  def requireMaster: Boolean
+  def result: SyncVar[WriteResult]
+
   def apply(settings: Settings) = {
-    val xs = evts.map {
+    val xs = events.map {
       case Event(tpe, id, data) =>
         val uuidByteString = ByteString.copyFrom(Utils.toByteBuffer(id))
         val builder        = NewEvent.newBuilder
@@ -47,14 +53,15 @@ case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean,
         builder.build
     }
 
-    val dto = WriteEvents.newBuilder
+    val msg = WriteEvents.newBuilder
       .setEventStreamId(stream)
       .setExpectedVersion(version.flag)
       .addAllEvents(xs.toIterable.asJava)
       .setRequireMaster(requireMaster)
       .build
-    val bytes = dto.toByteArray
-    val pkg   = Package(0x82, bytes, settings.credentials)
+      .toByteArray
+
+    val pkg   = Package(0x82, msg, settings.credentials)
 
     Send(pkg, {
       case Package(cmd, _, bytes, _) if cmd == 0x83 =>
@@ -67,7 +74,7 @@ case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean,
             val pos     = Position(commit, prepare)
             val last    = msg.getLastEventNumber
 
-            res.put(WriteResult(last, pos))
+            result.put(WriteResult(last, pos))
             Done
           case WrongExpectedVersion =>
             Error(WrongExpectedVersionException(stream, version))
@@ -80,5 +87,15 @@ case class SendEvents(stream: String, evts: List[Event], requireMaster: Boolean,
           case _ => Retry(this)
         }
     })
+  }
+}
+
+object SendEvents {
+  def apply(_stream: String, _events: List[Event], _requireMaster: Boolean, _version: ExpectedVersion) = new SendEvents {
+    val stream        = _stream
+    val events        = _events
+    val requireMaster = _requireMaster
+    val version       = _version
+    val result        = new SyncVar[WriteResult]()
   }
 }

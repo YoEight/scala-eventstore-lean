@@ -8,11 +8,16 @@ import protocol.Messages.ResolvedIndexedEvent
 import ReadEventCompleted.ReadEventResult._
 import scala.concurrent.SyncVar
 
-case class ReadEvent(stream: String, evtNumber: Int, tos: Boolean, res: SyncVar[ReadResult[ReadEventResult]]) extends Command {
+trait ReadEvent extends Command {
+  def stream: String
+  def eventNumber: Int
+  def tos: Boolean
+  def result: SyncVar[ReadResult[ReadEventResult]]
+
   def apply(settings: Settings) = {
     val msg = RE.newBuilder
       .setEventStreamId(stream)
-      .setEventNumber(evtNumber)
+      .setEventNumber(eventNumber)
       .setResolveLinkTos(tos)
       .setRequireMaster(settings.requireMaster)
       .build
@@ -26,30 +31,39 @@ case class ReadEvent(stream: String, evtNumber: Int, tos: Boolean, res: SyncVar[
 
         msg.getResult match {
           case Success =>
-            val evt    = msg.getEvent
-            val result = EventFound(stream, evtNumber, Indexed(stream, evt))
+            val evt   = msg.getEvent
+            val value = EventFound(stream, eventNumber, Indexed(stream, evt))
 
-            res.put(ReadSuccess(result))
+            result.put(ReadSuccess(value))
             Done
           case NotFound =>
-            val value = ReadSuccess(EventNotFound(stream, evtNumber))
-            res.put(value)
+            val value = ReadSuccess(EventNotFound(stream, eventNumber))
+            result.put(value)
             Done
           case NoStream =>
-            res.put(ReadNoStream(stream))
+            result.put(ReadNoStream(stream))
             Done
           case StreamDeleted =>
-            res.put(ReadStreamDeleted(stream))
+            result.put(ReadStreamDeleted(stream))
             Done
           case Error =>
             val value = ReadError(Option(msg.getError()))
-            res.put(value)
+            result.put(value)
             Done
           case AccessDenied =>
-            res.put(ReadAccessDenied(stream))
+            result.put(ReadAccessDenied(stream))
             Done
         }
     })
+  }
+}
+
+object ReadEvent {
+  def apply(_stream: String, _eventNumber: Int, _tos: Boolean) = new ReadEvent {
+    val stream      = _stream
+    val eventNumber = _eventNumber
+    val tos         = _tos
+    val result      = new SyncVar[ReadResult[ReadEventResult]]()
   }
 }
 
