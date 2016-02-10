@@ -9,6 +9,7 @@ object ExecutionSpec extends Specification { def is = s2"""
     writing an event should work      $writeEvents
     reading an event should work      $readEvent
     deleting a stream should work     $deleteStream
+    reading stream events shoud work  $readStreamEvents
                                       """
 
   val settings = Settings("localhost", 1113)
@@ -68,6 +69,34 @@ object ExecutionSpec extends Specification { def is = s2"""
     val delete = action.eval(settings)
 
     delete must not beNull
+  }
+
+  def readStreamEvents = {
+    val conn = Connection(settings)
+
+    val action = for {
+      _   <- sendEvent(conn, "test-read-stream", "event-type", "event-data")
+      cmd = command.ReadStreamEvents("test-read-stream", Forward, 1, 10, true)
+      pkg <- ManagerM.addCommand(cmd)
+      _    = conn.send(pkg)
+      resp = waitResponse(conn)
+      out <- ManagerM.handlePackage(resp)
+    } yield out match {
+      case MgrNoop => cmd.result.get
+      case wrong   => sys.error(s"Wrong response during read-stream $wrong")
+    }
+
+    val read = action.eval(settings)
+
+    read match {
+      case ReadSuccess(slice) =>
+        val evt = slice.events.head
+
+        (evt.stream must_== "test-read-stream") and
+        (new String(evt.data) must_== "event-data") and
+        (evt.eventNumber must_== 1)
+      case wrong => sys.error(s"Wrong output from read $wrong")
+    }
   }
 
   @annotation.tailrec

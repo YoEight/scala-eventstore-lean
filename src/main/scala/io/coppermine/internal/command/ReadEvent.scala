@@ -4,7 +4,6 @@ package command
 
 import protocol.Messages.{ ReadEvent => RE }
 import protocol.Messages.ReadEventCompleted
-import protocol.Messages.ResolvedIndexedEvent
 import ReadEventCompleted.ReadEventResult._
 import scala.concurrent.SyncVar
 
@@ -65,29 +64,4 @@ object ReadEvent {
     val tos         = _tos
     val result      = new SyncVar[ReadResult[ReadEventResult]]()
   }
-}
-
-import java.util.UUID
-
-case class Indexed(stream: String, e: ResolvedIndexedEvent) extends ResolvedEvent {
-  val original = e.getEvent
-
-  val eventNumber = original.getEventNumber
-
-  lazy val id = Read[UUID](original.getEventId.asReadOnlyByteBuffer)
-
-  val eventType = original.getEventType
-
-  val contentType = original.getDataContentType match {
-    case 1 => JsonContent
-    case 0 => BinaryContent
-  }
-
-  val data =
-    if (original.getData.isEmpty) Array[Byte]()
-    else original.getData.toByteArray
-
-  val metadata =
-    if (original.getMetadata.isEmpty) None
-    else Some(original.getMetadata.toByteArray)
 }
